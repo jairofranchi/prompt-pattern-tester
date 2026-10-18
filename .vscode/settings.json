@@ -1,0 +1,18 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "github.copilot.enable": {
+    "*": true,
+    "python": true,
+    "plaintext": false,
+    "markdown": false
+  },
+  "github.copilot.editor.enableAutoCompletions": true,
+  "editor.inlineSuggest.enabled": true,
+  "editor.quickSuggestions": {
+    "other": true,
+    "comments": false,
+    "strings": true
+  },
+  "editor.suggestOnTriggerCharacters": true,
+  "editor.acceptSuggestionOnEnter": "on"
+}
