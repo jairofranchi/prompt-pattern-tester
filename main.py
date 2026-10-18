@@ -5,7 +5,6 @@ from prompt_patterns import build_prompt
 from openai import OpenAI
 from rich.console import Console
 from rich.markdown import Markdown
-from rich.console import Console
 
 load_dotenv()
 
@@ -13,18 +12,24 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 def main():
+    prompt = build_prompt(
+        "persona",
+        {
+            "role": "a senior Python developer",
+            "experience": "10 years of algorithms experience",
+            "style": "terse and code-only",
+            "priority": "correctness and readability",
+            "task": "Write a function that finds the longest palindromic substring.",
+        },
+        system_override="You are a senior Python developer. Respond with code only, no explanations, inside a single ```python fenced code block.",
+    )
+
     response = client.chat.completions.create(
         model="gpt-5.4-mini",
-        temperature=0.0,
+        temperature=prompt["temperature"],
         messages=[
-            {
-                "role": "system",
-                "content": "You are a senior Python developer. Respond with code only, no explanations, inside a single ```python fenced code block.",
-            },
-            {
-                "role": "user",
-                "content": "Write a function that finds the longest palindromic substring.",
-            },
+            {"role": "system", "content": prompt["system"]},
+            {"role": "user", "content": prompt["user"]},
         ],
     )
 
