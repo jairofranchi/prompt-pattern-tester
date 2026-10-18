@@ -72,6 +72,72 @@ TEST_SUITE = [
             "forbidden_phrases": ["here is the complete solution"],
         },
     },
+    {
+        "name": "Meta-Prompt: Support Ticket Classifier",
+        "pattern": "meta_prompt",
+        "variables": {
+            "objective": "classify customer support tickets into billing, technical, or account categories",
+            "metric": "classification accuracy",
+            "model": "gpt-4o",
+        },
+        "criteria": {
+            "max_words": 400,
+            "required_keywords": ["billing", "technical", "account", "example"],
+            "forbidden_phrases": ["as an ai language model"],
+        },
+    },
+    {
+        "name": "Decomposition: Event Planning",
+        "pattern": "decomposition",
+        "variables": {
+            "problem": "Plan a 3-day conference for 200 attendees with a $50,000 budget, including venue, catering, speakers, and registration.",
+        },
+        "criteria": {
+            "expected_format": "numbered_list",
+            "required_keywords": ["sub-problem", "venue", "catering", "budget"],
+        },
+    },
+    {
+        "name": "Critique: Code Explanation",
+        "pattern": "critique",
+        "variables": {
+            "task": "Explain what a Python decorator is in two or three sentences.",
+        },
+        "criteria": {
+            "required_keywords": ["Step 1", "Step 2", "Step 3", "decorator"],
+            "forbidden_phrases": ["i cannot"],
+        },
+    },
+    {
+        "name": "Audience Adaptation: Blockchain for Kids",
+        "pattern": "audience_adapt",
+        "variables": {
+            "concept": "how a blockchain works",
+            "audience": "10-year-old children",
+            "length": "under 100 words",
+            "include": "a simple everyday analogy",
+            "exclude": "technical jargon like hashing or consensus",
+        },
+        "criteria": {
+            "max_words": 100,
+            "required_keywords": ["blockchain"],
+            "forbidden_phrases": ["hashing", "consensus"],
+        },
+    },
+    {
+        "name": "Boundary: Cooking Assistant",
+        "pattern": "boundary",
+        "variables": {
+            "scope": "cooking and recipe questions",
+            "refusal_message": "I can only help with cooking questions.",
+            "user_input": "Can you help me file my taxes?",
+        },
+        "criteria": {
+            "max_words": 20,
+            "required_keywords": ["I can only help with cooking questions."],
+            "forbidden_phrases": ["deduction", "tax return"],
+        },
+    },
 ]
 
 
