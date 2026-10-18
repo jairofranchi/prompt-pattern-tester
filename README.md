@@ -1,4 +1,4 @@
-# python-project
+# prompt-pattern-tester
 
 Prompt-engineering playground: reusable prompt patterns, a test harness that scores model responses against criteria, and a small app that calls the OpenAI API.
 
