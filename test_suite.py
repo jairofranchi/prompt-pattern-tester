@@ -1,6 +1,10 @@
+import json
+import os
+from datetime import datetime
+
 from prompt_comparison import compare_models
 from prompt_patterns import build_prompt
-from testing_harness import run_prompt_test
+from testing_harness import MODEL_CONFIGS, run_prompt_test
 
 TEST_SUITE = [
     {
@@ -141,9 +145,39 @@ TEST_SUITE = [
 ]
 
 
+RUNS = int(os.getenv("RUNS", "1"))
+
+
+def summarize_runs(runs):
+    """Average score, words, and latency over the runs of one model on one test."""
+    ok = [r for r in runs if not r["error"]]
+    if not ok:
+        return {"error": runs[-1]["error"]}
+    last = ok[-1]["scores"]
+    return {
+        "composite_score": round(sum(r["scores"]["composite_score"] for r in ok) / len(ok), 3),
+        "word_count": round(sum(r["scores"]["word_count"] for r in ok) / len(ok)),
+        "keyword_coverage": last.get("keyword_coverage"),
+        "format_valid": last.get("format_valid"),
+        "length_compliant": last.get("length_compliant"),
+        "latency_ms": round(sum(r["latency_ms"] for r in ok) / len(ok), 1),
+        "error": None,
+    }
+
+
+def fmt(value):
+    if value is None:
+        return "-"
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, float):
+        return f"{value:.2f}"
+    return str(value)
+
+
 def run_test_suite():
     print("=" * 70)
-    print("  PROMPT ENGINEERING TEST SUITE")
+    print(f"  PROMPT ENGINEERING TEST SUITE ({RUNS} run(s) per test)")
     print("=" * 70)
 
     all_results = []
@@ -159,21 +193,38 @@ def run_test_suite():
         print(f"  User prompt: {prompt['user'][:120]}...")
         print(f"  Temperature: {prompt['temperature']}")
 
-        results = run_prompt_test(prompt)
-        comparison, ranked = compare_models(results, test["criteria"])
+        runs_by_model = {}
+        for _ in range(RUNS):
+            comparison, _ranked = compare_models(run_prompt_test(prompt), test["criteria"])
+            for model_name, data in comparison.items():
+                runs_by_model.setdefault(model_name, []).append(data)
 
-        print(f"\n  {'Model':<25} {'Score':>8} {'Tokens':>8} {'Latency':>10}")
-        print(f"  {'-'*55}")
-        for model_name, data in ranked:
-            score = data["scores"]["composite_score"]
-            tokens = data["tokens"].get("total", 0)
-            latency = data["latency_ms"]
-            print(f"  {model_name:<25} {score:>8.3f} {tokens:>8} {latency:>8}ms")
+        summaries = {name: summarize_runs(runs) for name, runs in runs_by_model.items()}
+        ranked = sorted(
+            summaries.items(),
+            key=lambda x: x[1].get("composite_score", -1),
+            reverse=True,
+        )
+
+        print(f"\n  {'Model':<20} {'Score':>6} {'Words':>6} {'Keywords':>9} {'Format':>7} {'Length':>7} {'Latency':>10}")
+        print(f"  {'-' * 70}")
+        for model_name, s in ranked:
+            if s["error"]:
+                print(f"  {model_name:<20} ERROR: {s['error'][:60]}")
+                continue
+            print(
+                f"  {model_name:<20} {s['composite_score']:>6.3f} {s['word_count']:>6} "
+                f"{fmt(s['keyword_coverage']):>9} {fmt(s['format_valid']):>7} "
+                f"{fmt(s['length_compliant']):>7} {s['latency_ms']:>8}ms"
+            )
 
         all_results.append({
             "test": test["name"],
             "pattern": test["pattern"],
-            "rankings": [(name, data["scores"]["composite_score"]) for name, data in ranked],
+            "criteria": test["criteria"],
+            "summaries": summaries,
+            "runs": runs_by_model,
+            "rankings": [(name, s.get("composite_score")) for name, s in ranked if not s["error"]],
         })
 
     print(f"\n\n{'=' * 70}")
@@ -182,12 +233,33 @@ def run_test_suite():
 
     model_wins = {}
     for result in all_results:
-        if result["rankings"]:
+        scores = [score for _, score in result["rankings"]]
+        # A tie gives no win to either model.
+        if scores and scores.count(scores[0]) == 1:
             winner = result["rankings"][0][0]
             model_wins[winner] = model_wins.get(winner, 0) + 1
 
-    for model, wins in sorted(model_wins.items(), key=lambda x: x[1], reverse=True):
-        print(f"  {model}: {wins} wins out of {len(all_results)} tests")
+    print(f"\n  {'Model':<20} {'Avg score':>10} {'Wins':>5} {'Avg words':>10} {'Avg latency':>12} {'Errors':>7}")
+    print(f"  {'-' * 70}")
+    for model_name in MODEL_CONFIGS:
+        ok = [r["summaries"][model_name] for r in all_results if not r["summaries"].get(model_name, {}).get("error", True)]
+        errors = len(all_results) - len(ok)
+        if not ok:
+            print(f"  {model_name:<20} no successful calls ({errors} errors)")
+            continue
+        avg_score = sum(s["composite_score"] for s in ok) / len(ok)
+        avg_words = sum(s["word_count"] for s in ok) / len(ok)
+        avg_latency = sum(s["latency_ms"] for s in ok) / len(ok)
+        print(
+            f"  {model_name:<20} {avg_score:>10.3f} {model_wins.get(model_name, 0):>5} "
+            f"{avg_words:>10.0f} {avg_latency:>10.0f}ms {errors:>7}"
+        )
+
+    os.makedirs("results", exist_ok=True)
+    path = os.path.join("results", f"run-{datetime.now():%Y%m%d-%H%M%S}.json")
+    with open(path, "w") as f:
+        json.dump(all_results, f, indent=2, default=str)
+    print(f"\n  Raw results saved to {path}")
 
     return all_results
 

@@ -1,11 +1,10 @@
 import json
 
 def score_response(response_text, criteria):
-    scores = {}
+    word_count = len(response_text.split())
+    scores = {"word_count": word_count, "char_count": len(response_text)}
 
     if "max_words" in criteria:
-        word_count = len(response_text.split())
-        scores["word_count"] = word_count
         scores["length_compliant"] = word_count <= criteria["max_words"]
 
     if "required_keywords" in criteria:
@@ -58,7 +57,10 @@ def compare_models(test_results, criteria):
         comparison[model_name] = {
             "scores": scores,
             "tokens": result["tokens"],
-            "latency_ms": result["api_latency_ms"],
+            "latency_ms": result["latency_ms"],
+            "finish_reason": result["finish_reason"],
+            "error": result["error"],
+            "response": result["response"],
         }
 
     ranked = sorted(comparison.items(), key=lambda x: x[1]["scores"]["composite_score"], reverse=True)

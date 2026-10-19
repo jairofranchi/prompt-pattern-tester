@@ -1,101 +1,97 @@
-import json
+import os
 import time
-import hashlib
+from functools import cache
+
+import anthropic
+from dotenv import load_dotenv
+from openai import OpenAI
+
+load_dotenv()
 
 
 MODEL_CONFIGS = {
-    "gpt-4o": {
+    "gpt-4o-mini": {
         "provider": "openai",
-        "model": "gpt-4o",
+        "model": "gpt-4o-mini",
         "max_tokens": 2048,
         "context_window": 128_000,
     },
-    "claude-3.5-sonnet": {
+    "claude-haiku-5-5": {
         "provider": "anthropic",
-        "model": "claude-sonnet-5",
-        "max_tokens": 2048,
-        "context_window": 1_000_000,
-    },
-    "gemini-1.5-pro": {
-        "provider": "google",
-        "model": "gemini-2.5-pro",
-        "max_tokens": 2048,
+        "model": "claude-haiku-5-5",
+        # Thinking is on by default and counts against max_tokens.
+        "max_tokens": 16000,
         "context_window": 1_000_000,
     },
 }
 
 
-def format_openai_request(prompt):
+def format_openai_request(prompt, config):
     return {
-        "model": MODEL_CONFIGS["gpt-4o"]["model"],
+        "model": config["model"],
         "messages": [
             {"role": "system", "content": prompt["system"]},
             {"role": "user", "content": prompt["user"]},
         ],
         "temperature": prompt["temperature"],
-        "max_tokens": MODEL_CONFIGS["gpt-4o"]["max_tokens"],
+        "max_tokens": config["max_tokens"],
     }
 
 
-def format_anthropic_request(prompt):
+def format_anthropic_request(prompt, config):
+    # Haiku 5.5 rejects non-default temperature, so it isn't sent.
     return {
-        "model": MODEL_CONFIGS["claude-3.5-sonnet"]["model"],
+        "model": config["model"],
         "system": prompt["system"],
         "messages": [
             {"role": "user", "content": prompt["user"]},
         ],
-        "temperature": prompt["temperature"],
-        "max_tokens": MODEL_CONFIGS["claude-3.5-sonnet"]["max_tokens"],
-    }
-
-
-def format_google_request(prompt):
-    return {
-        "model": MODEL_CONFIGS["gemini-1.5-pro"]["model"],
-        "contents": [
-            {"role": "user", "parts": [{"text": f"{prompt['system']}\n\n{prompt['user']}"}]},
-        ],
-        "generationConfig": {
-            "temperature": prompt["temperature"],
-            "maxOutputTokens": MODEL_CONFIGS["gemini-1.5-pro"]["max_tokens"],
-        },
+        "max_tokens": config["max_tokens"],
     }
 
 
 FORMATTERS = {
     "openai": format_openai_request,
     "anthropic": format_anthropic_request,
-    "google": format_google_request,
 }
 
 
-def simulate_llm_call(model_name, request):
-    time.sleep(0.01)
+@cache
+def openai_client():
+    return OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    prompt_hash = hashlib.md5(json.dumps(request, sort_keys=True).encode()).hexdigest()[:8]
 
-    simulated_responses = {
-        "gpt-4o": {
-            "response": f"[GPT-4o response for prompt {prompt_hash}] This is a simulated response demonstrating the model's output style. GPT-4o tends to be thorough and well-structured.",
-            "tokens_used": {"prompt": 150, "completion": 45, "total": 195},
-            "latency_ms": 850,
-            "finish_reason": "stop",
-        },
-        "claude-3.5-sonnet": {
-            "response": f"[Claude 3.5 Sonnet response for prompt {prompt_hash}] This is a simulated response. Claude tends to be direct, precise, and follows instructions closely.",
-            "tokens_used": {"prompt": 145, "completion": 40, "total": 185},
-            "latency_ms": 720,
-            "finish_reason": "end_turn",
-        },
-        "gemini-1.5-pro": {
-            "response": f"[Gemini 1.5 Pro response for prompt {prompt_hash}] This is a simulated response. Gemini tends to be comprehensive with good factual grounding.",
-            "tokens_used": {"prompt": 155, "completion": 42, "total": 197},
-            "latency_ms": 900,
-            "finish_reason": "STOP",
-        },
-    }
+@cache
+def anthropic_client():
+    return anthropic.Anthropic()
 
-    return simulated_responses.get(model_name, {"response": "Unknown model", "tokens_used": {}, "latency_ms": 0})
+
+def call_llm(config, request):
+    if config["provider"] == "openai":
+        response = openai_client().chat.completions.create(**request)
+        return {
+            "response": response.choices[0].message.content or "",
+            "tokens_used": {
+                "prompt": response.usage.prompt_tokens,
+                "completion": response.usage.completion_tokens,
+                "total": response.usage.total_tokens,
+            },
+            "finish_reason": response.choices[0].finish_reason,
+        }
+
+    if config["provider"] == "anthropic":
+        response = anthropic_client().messages.create(**request)
+        return {
+            "response": "".join(block.text for block in response.content if block.type == "text"),
+            "tokens_used": {
+                "prompt": response.usage.input_tokens,
+                "completion": response.usage.output_tokens,
+                "total": response.usage.input_tokens + response.usage.output_tokens,
+            },
+            "finish_reason": response.stop_reason,
+        }
+
+    raise ValueError(f"Unsupported provider: {config['provider']}")
 
 
 def run_prompt_test(prompt, models=None):
@@ -105,19 +101,23 @@ def run_prompt_test(prompt, models=None):
     results = {}
     for model_name in models:
         config = MODEL_CONFIGS[model_name]
-        formatter = FORMATTERS[config["provider"]]
-        request = formatter(prompt)
+        request = FORMATTERS[config["provider"]](prompt, config)
 
         start = time.time()
-        response = simulate_llm_call(model_name, request)
+        try:
+            response = call_llm(config, request)
+            error = None
+        except Exception as e:
+            response = {"response": "", "tokens_used": {}, "finish_reason": None}
+            error = f"{type(e).__name__}: {e}"
         wall_time = (time.time() - start) * 1000
 
         results[model_name] = {
             "response": response["response"],
             "tokens": response["tokens_used"],
-            "api_latency_ms": response["latency_ms"],
-            "wall_time_ms": round(wall_time, 1),
-            "finish_reason": response.get("finish_reason"),
+            "latency_ms": round(wall_time, 1),
+            "finish_reason": response["finish_reason"],
+            "error": error,
             "request_payload": request,
         }
 
